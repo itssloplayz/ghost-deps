@@ -1,6 +1,7 @@
 {
   "name": "ghost-deps",
   "version": "0.1.0",
+  "description": "Detect ghost/phantom dependencies in Node.js projects by analyzing imports vs package.json.",
   "main": "dist/cli.js",
   "bin": {
     "ghost-deps": "bin/ghost-deps.js"
@@ -10,14 +11,40 @@
     "start": "node bin/ghost-deps.js",
     "dev": "tsup src/cli.ts src/analyze.ts src/runtime-tracker.ts --format cjs --watch"
   },
+  "files": [
+    "dist",
+    "bin"
+  ],
+  "keywords": [
+    "dependencies",
+    "phantom",
+    "ghost",
+    "npm",
+    "cli",
+    "analyzer",
+    "devtools"
+  ],
+  "author": "itssloplayz",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/itssloplayz/ghost-deps.git"
+  },
+  "bugs": {
+    "url": "https://github.com/itssloplayz/ghost-deps/issues"
+  },
+  "homepage": "https://github.com/itssloplayz/ghost-deps#readme",
+  "engines": {
+    "node": ">=18"
+  },
   "devDependencies": {
     "@types/babel__traverse": "^7.28.0",
-    "tsup": "^8.5.0"
+    "tsup": "^8.5.0",
+    "typescript": "^5.9.3"
   },
   "dependencies": {
     "@babel/parser": "^7.28.4",
     "@babel/traverse": "^7.28.4",
-    "globby": "^15.0.0",
-    "typescript": "^5.9.3"
+    "globby": "^15.0.0"
   }
 }
