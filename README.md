@@ -1,5 +1,3 @@
----
-
 # 🕵️‍♂️ ghost-deps
 
 **Find and track ghost dependencies hiding in your Node.js projects.**
@@ -117,7 +115,3 @@ node bin/ghost-deps.js --path .
 ## 📄 License
 
 MIT © [itssloplayz](https://github.com/itssloplayz)
-
----
-
-Would you like me to make it **slightly more developer-blog style** (with emojis, casual tone, and humor like a modern open-source README), or keep this **clean professional format**?
