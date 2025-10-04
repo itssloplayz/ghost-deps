@@ -53,6 +53,7 @@ ghost-deps [options]
 | `--path`   | Path to your project root               | `.`               |
 | `--ignore` | Comma-separated list of globs to ignore | `node_modules/**` |
 | `--json`   | Output report as JSON                   | `false`           |
+| `-o, --output <file>`   | Save the output to a file                   | `stdout`           |
 
 ### Example:
 
