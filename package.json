@@ -7,7 +7,7 @@
     "ghost-deps": "bin/ghost-deps.js"
   },
   "scripts": {
-    "build": "tsup src/cli.ts src/analyze.ts src/runtime-tracker.ts --format cjs --dts --external:chalk,fs,path",
+    "build": "tsup",
     "start": "node bin/ghost-deps.js",
     "dev": "tsup src/cli.ts src/analyze.ts src/runtime-tracker.ts --format cjs --watch"
   },
