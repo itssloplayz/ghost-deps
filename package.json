@@ -1,6 +1,6 @@
 {
   "name": "ghost-deps",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Detect ghost/phantom dependencies in Node.js projects by analyzing imports vs package.json.",
   "main": "dist/cli.js",
   "bin": {
