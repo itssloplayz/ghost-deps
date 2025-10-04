@@ -7,7 +7,7 @@
     "ghost-deps": "bin/ghost-deps.js"
   },
   "scripts": {
-    "build": "tsup src/cli.ts src/analyze.ts src/runtime-tracker.ts --format cjs --dts",
+    "build": "tsup src/cli.ts src/analyze.ts src/runtime-tracker.ts --format cjs --dts --external:chalk,fs,path",
     "start": "node bin/ghost-deps.js",
     "dev": "tsup src/cli.ts src/analyze.ts src/runtime-tracker.ts --format cjs --watch"
   },
@@ -39,12 +39,14 @@
   },
   "devDependencies": {
     "@types/babel__traverse": "^7.28.0",
+    "@types/node": "^24.6.2",
     "tsup": "^8.5.0",
     "typescript": "^5.9.3"
   },
   "dependencies": {
     "@babel/parser": "^7.28.4",
     "@babel/traverse": "^7.28.4",
+    "chalk": "^5.6.2",
     "globby": "^15.0.0"
   }
 }
