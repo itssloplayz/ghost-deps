@@ -5,6 +5,25 @@ import { parse } from '@babel/parser'
 import traverse, { NodePath } from '@babel/traverse'
 import * as t from '@babel/types'
 import chalk from 'chalk'
+import pLimit from 'p-limit'
+
+interface PackageJson {
+  dependencies?: Record<string, string>
+  devDependencies?: Record<string, string>
+}
+
+export interface AnalyzeOptions {
+  patterns?: string[]
+  debug?: boolean
+  ignore?: string[]
+  concurrency?: number
+}
+
+export interface AnalyzeResult {
+  ghosts: string[]
+  phantoms: string[]
+  devUsedInProd: Record<string, string[]>
+}
 
 function getPackageName(p: string | null): string | null {
   if (!p) return null
@@ -26,41 +45,21 @@ function isDevFile(file: string): boolean {
   )
 }
 
-export interface AnalyzeOptions {
-  patterns?: string[]
-  debug?: boolean
-}
-
-export interface AnalyzeResult {
-  ghosts: string[]
-  phantoms: string[]
-  devUsedInProd: Record<string, string[]>
-}
-
-export async function analyzeProject(root = process.cwd(), opts: AnalyzeOptions = {}): Promise<AnalyzeResult> {
-  const debug = opts.debug ?? false
-  const safeLog = (msg: string) => {
-    if (debug) console.warn(chalk.dim(msg))
-  }
-
-  let pkg: any
+async function readPackage(root: string, debug: boolean): Promise<PackageJson | null> {
   try {
     const pkgPath = path.join(root, 'package.json')
     const pkgRaw = await fs.readFile(pkgPath, 'utf8')
-    pkg = JSON.parse(pkgRaw)
+    return JSON.parse(pkgRaw)
   } catch (err: unknown) {
     const e = err as Error
-    console.error(chalk.red(`⚠️  Failed to read or parse package.json in ${root}: ${e.message}`))
-    return { ghosts: [], phantoms: [], devUsedInProd: {} }
+    if (debug) console.warn(chalk.red(`⚠️  Failed to read or parse package.json: ${e.message}`))
+    return null
   }
+}
 
-  const dependencies = Object.keys(pkg.dependencies ?? {})
-  const devDependencies = Object.keys(pkg.devDependencies ?? {})
-  const declaredAll = new Set([...dependencies, ...devDependencies])
-
-  let files: string[] = []
+async function getProjectFiles(root: string, patterns?: string[], debug = false): Promise<string[]> {
   try {
-    files = await globby(opts.patterns ?? ['**/*.{js,ts,jsx,tsx,mjs,cjs}'], {
+    return await globby(patterns ?? ['**/*.{js,ts,jsx,tsx,mjs,cjs}'], {
       cwd: root,
       absolute: true,
       gitignore: true,
@@ -68,77 +67,101 @@ export async function analyzeProject(root = process.cwd(), opts: AnalyzeOptions 
     })
   } catch (err: unknown) {
     const e = err as Error
-    console.error(chalk.red(`⚠️  Failed to scan files with globby: ${e.message}`))
+    if (debug) console.warn(chalk.red(`⚠️  Failed to scan files with globby: ${e.message}`))
+    return []
+  }
+}
+
+async function analyzeFile(file: string, root: string, debug: boolean): Promise<[string, Set<string>]> {
+  const used = new Set<string>()
+  try {
+    const content = await fs.readFile(file, 'utf8')
+    const ast = parse(content, {
+      sourceType: 'unambiguous',
+      plugins: [
+        'typescript',
+        'jsx',
+        'dynamicImport',
+        'decorators-legacy',
+        'importMeta'
+      ]
+    })
+
+    traverse(ast, {
+      ImportDeclaration({ node }: NodePath<t.ImportDeclaration>) {
+        const pkgName = getPackageName(node.source?.value)
+        if (pkgName) used.add(pkgName)
+      },
+      ExportAllDeclaration({ node }: NodePath<t.ExportAllDeclaration>) {
+        const pkgName = getPackageName(node.source?.value)
+        if (pkgName) used.add(pkgName)
+      },
+      ExportNamedDeclaration({ node }: NodePath<t.ExportNamedDeclaration>) {
+        const pkgName = getPackageName(node.source?.value ?? null)
+        if (pkgName) used.add(pkgName)
+      },
+      CallExpression({ node }: NodePath<t.CallExpression>) {
+        const callee = node.callee
+        const arg = node.arguments?.[0]
+        if (
+          ((t.isIdentifier(callee) && callee.name === 'require') || t.isImport(callee)) &&
+          t.isStringLiteral(arg)
+        ) {
+          const pkgName = getPackageName(arg.value)
+          if (pkgName) used.add(pkgName)
+        }
+      }
+    })
+  } catch (err: unknown) {
+    const e = err as Error
+    if (debug) console.warn(chalk.dim(`Skipping ${path.relative(root, file)} (${e.message})`))
+  }
+  return [path.relative(root, file), used]
+}
+
+export async function analyzeProject(root = process.cwd(), opts: AnalyzeOptions = {}): Promise<AnalyzeResult> {
+  const debug = opts.debug ?? false
+  const concurrency = opts.concurrency ?? 8
+
+  const pkg = await readPackage(root, debug)
+  if (!pkg) return { ghosts: [], phantoms: [], devUsedInProd: {} }
+
+  const dependencies = Object.keys(pkg.dependencies ?? {})
+  const devDependencies = Object.keys(pkg.devDependencies ?? {})
+  const declaredAll = new Set([...dependencies, ...devDependencies])
+
+  const files = await getProjectFiles(root, opts.patterns, debug)
+  if (!files.length) {
+    if (debug) console.log(chalk.yellow('⚠️  No source files found.'))
     return { ghosts: [], phantoms: [], devUsedInProd: {} }
   }
 
+  if (debug) console.log(chalk.dim(`Scanning ${files.length} files...`))
+
+  const limit = pLimit(concurrency)
+  const results = await Promise.all(files.map(f => limit(() => analyzeFile(f, root, debug))))
+
   const used = new Set<string>()
   const fileToUsed = new Map<string, Set<string>>()
-
-  for (const file of files) {
-    let content: string
-    try {
-      content = await fs.readFile(file, 'utf8')
-    } catch (err: unknown) {
-      const e = err as Error
-      safeLog(`Skipping unreadable file: ${file} (${e.message})`)
-      continue
-    }
-
-    let ast: t.File
-    try {
-      ast = parse(content, {
-        sourceType: 'unambiguous',
-        plugins: ['typescript', 'jsx', 'dynamicImport']
-      })
-    } catch (err: unknown) {
-      const e = err as Error
-      safeLog(`Skipping unparsable file: ${file} (${e.message})`)
-      continue
-    }
-
-    const localUsed = new Set<string>()
-    try {
-      traverse(ast, {
-        ImportDeclaration({ node }: NodePath<t.ImportDeclaration>) {
-          const v = node.source?.value
-          const pkgName = getPackageName(v)
-          if (pkgName) {
-            used.add(pkgName)
-            localUsed.add(pkgName)
-          }
-        },
-        CallExpression({ node }: NodePath<t.CallExpression>) {
-          const callee = node.callee
-          const arg = node.arguments?.[0]
-          if (
-            ((t.isIdentifier(callee) && callee.name === 'require') || t.isImport(callee)) &&
-            t.isStringLiteral(arg)
-          ) {
-            const pkgName = getPackageName(arg.value)
-            if (pkgName) {
-              used.add(pkgName)
-              localUsed.add(pkgName)
-            }
-          }
-        }
-      })
-    } catch (err: unknown) {
-      const e = err as Error
-      safeLog(`Traverse error in file: ${file} (${e.message})`)
-    }
-
-    fileToUsed.set(path.relative(root, file), localUsed)
+  for (const [file, localUsed] of results) {
+    fileToUsed.set(file, localUsed)
+    for (const u of localUsed) used.add(u)
   }
 
   const ghosts = dependencies.filter(d => !used.has(d))
-  const phantoms = [...used].filter(u => !declaredAll.has(u))
+  const phantoms = [...used].filter(u => !declaredAll.has(u) && !opts.ignore?.includes(u))
 
   const devUsedInProd = new Map<string, string[]>()
   for (const [file, usedSet] of fileToUsed) {
     if (isDevFile(file)) continue
     const usedDev = [...usedSet].filter(u => devDependencies.includes(u))
     if (usedDev.length) devUsedInProd.set(file, usedDev)
+  }
+
+  if (debug) {
+    console.log(chalk.green(`✔ Found ${used.size} unique imports.`))
+    if (ghosts.length) console.log(chalk.yellow(`👻 Unused deps: ${ghosts.join(', ')}`))
+    if (phantoms.length) console.log(chalk.magenta(`🕯 Undeclared deps: ${phantoms.join(', ')}`))
   }
 
   return {

@@ -26,7 +26,7 @@ const program = new Command()
   .option('--json', 'Output as JSON')
   .option('-o, --output <file>', 'Save output to a file')
   .option('--no-color', 'Disable color output')
-  .version('0.1.3')
+  .version('0.1.4')
   .showHelpAfterError()
 
 program.action(async () => {
