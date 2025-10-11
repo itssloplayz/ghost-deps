@@ -115,4 +115,4 @@ node bin/ghost-deps.js --path .
 
 ## 📄 License
 
-MIT © [itssloplayz](https://github.com/itssloplayz)
+MIT © [majcek210](https://github.com/majcek210)
