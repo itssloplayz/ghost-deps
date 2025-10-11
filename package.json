@@ -1,6 +1,6 @@
 {
   "name": "ghost-deps",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "description": "Detect ghost/phantom dependencies in Node.js projects by analyzing imports vs package.json.",
   "main": "dist/cli.js",
   "bin": {
@@ -24,16 +24,16 @@
     "analyzer",
     "devtools"
   ],
-  "author": "itssloplayz",
+  "author": "majcek210",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/itssloplayz/ghost-deps.git"
+    "url": "https://github.com/majcek210/ghost-deps.git"
   },
   "bugs": {
-    "url": "https://github.com/itssloplayz/ghost-deps/issues"
+    "url": "https://github.com/majcek210/ghost-deps/issues"
   },
-  "homepage": "https://github.com/itssloplayz/ghost-deps#readme",
+  "homepage": "https://github.com/majcek210/ghost-deps#readme",
   "engines": {
     "node": ">=18"
   },

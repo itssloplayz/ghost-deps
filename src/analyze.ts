@@ -6,6 +6,7 @@ import traverse, { NodePath } from '@babel/traverse'
 import * as t from '@babel/types'
 import chalk from 'chalk'
 import pLimit from 'p-limit'
+import { builtinModules } from 'module'
 
 interface PackageJson {
   dependencies?: Record<string, string>
@@ -72,9 +73,20 @@ async function getProjectFiles(root: string, patterns?: string[], debug = false)
   }
 }
 
+function normalizeIgnore(ignore?: string[] | undefined): string[] {
+  if (!ignore) return []
+  return Array.from(new Set(ignore.map(i => i.trim()).filter(Boolean)))
+}
+
 async function analyzeFile(file: string, root: string, debug: boolean): Promise<[string, Set<string>]> {
   const used = new Set<string>()
   try {
+    const stat = await fs.stat(file)
+    // skip very large files to avoid OOM / long parse times (1MB)
+    if (stat.size > 1_000_000) {
+      if (debug) console.warn(chalk.dim(`Skipping large file ${path.relative(root, file)} (${stat.size} bytes)`))
+      return [path.relative(root, file), used]
+    }
     const content = await fs.readFile(file, 'utf8')
     const ast = parse(content, {
       sourceType: 'unambiguous',
@@ -121,7 +133,11 @@ async function analyzeFile(file: string, root: string, debug: boolean): Promise<
 
 export async function analyzeProject(root = process.cwd(), opts: AnalyzeOptions = {}): Promise<AnalyzeResult> {
   const debug = opts.debug ?? false
-  const concurrency = opts.concurrency ?? 8
+  let concurrency = opts.concurrency ?? 8
+  // clamp concurrency between 1 and 64
+  concurrency = Math.max(1, Math.min(64, concurrency))
+
+  const ignoreList = normalizeIgnore(opts.ignore)
 
   const pkg = await readPackage(root, debug)
   if (!pkg) return { ghosts: [], phantoms: [], devUsedInProd: {} }
@@ -149,7 +165,8 @@ export async function analyzeProject(root = process.cwd(), opts: AnalyzeOptions 
   }
 
   const ghosts = dependencies.filter(d => !used.has(d))
-  const phantoms = [...used].filter(u => !declaredAll.has(u) && !opts.ignore?.includes(u))
+  const builtinSet = new Set(builtinModules)
+  const phantoms = [...used].filter(u => !declaredAll.has(u) && !ignoreList.includes(u) && !builtinSet.has(u))
 
   const devUsedInProd = new Map<string, string[]>()
   for (const [file, usedSet] of fileToUsed) {
@@ -159,7 +176,7 @@ export async function analyzeProject(root = process.cwd(), opts: AnalyzeOptions 
   }
 
   if (debug) {
-    console.log(chalk.green(`✔ Found ${used.size} unique imports.`))
+    console.log(chalk.green(`✔ Found ${used.size} unique imports across ${files.length} files.`))
     if (ghosts.length) console.log(chalk.yellow(`👻 Unused deps: ${ghosts.join(', ')}`))
     if (phantoms.length) console.log(chalk.magenta(`🕯 Undeclared deps: ${phantoms.join(', ')}`))
   }

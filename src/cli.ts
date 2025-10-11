@@ -31,27 +31,71 @@ const program = new Command()
 
 program.action(async () => {
   const opts = program.opts() as CLIOptions
-  const root = opts.path ?? process.cwd()
-  const spinner = ora(`Analyzing ${chalk.cyan(root)}...`).start()
+  const root = opts.path ? path.resolve(opts.path) : process.cwd()
+  const useColor = opts.color ?? true
+  const spinner = ora({ text: `Analyzing ${chalk.cyan(root)}...`, color: 'cyan' }).start()
+
+  // global safety handlers (best-effort, not overriding consumer handlers)
+  process.on('unhandledRejection', (reason: unknown) => {
+    // eslint-disable-next-line no-console
+    console.error(chalk.red(`Unhandled Rejection: ${String(reason)}`))
+    process.exit(2)
+  })
+  process.on('uncaughtException', (err: Error) => {
+    // eslint-disable-next-line no-console
+    console.error(chalk.red(`Uncaught Exception: ${err.message}`))
+    process.exit(2)
+  })
 
   try {
-    const res: AnalysisResult = await analyzeProject(root)
+    // validate root exists and is a directory
+    let stat
+    try {
+      stat = await fs.promises.stat(root)
+    } catch (err) {
+      throw new Error(`Path does not exist: ${root}`)
+    }
+    if (!stat.isDirectory()) throw new Error(`Path is not a directory: ${root}`)
+
+    const raw = await analyzeProject(root)
+
+    // defensive normalization of result
+    const res: AnalysisResult = {
+      ghosts: Array.isArray((raw as any)?.ghosts) ? (raw as any).ghosts : [],
+      phantoms: Array.isArray((raw as any)?.phantoms) ? (raw as any).phantoms : [],
+      devUsedInProd: typeof (raw as any)?.devUsedInProd === 'object' && (raw as any).devUsedInProd !== null
+        ? (raw as any).devUsedInProd
+        : {},
+    }
+
     spinner.succeed('Analysis complete')
 
     const output = opts.json
       ? JSON.stringify(res, null, 2)
-      : formatResults(res, opts.color ?? true)
+      : formatResults(res, useColor)
 
     if (opts.output) {
-      await saveOutput(opts.output, output)
+      try {
+        await saveOutput(opts.output, output)
+      } catch (err: any) {
+        // write failure is non-fatal for analysis but report and exit 2
+        // eslint-disable-next-line no-console
+        console.error(chalk.red(`Failed to save output: ${err.message ?? err}`))
+        process.exit(2)
+      }
     } else {
       console.log(output)
     }
 
+    // exit with non-zero if issues were found
     process.exit(res.ghosts.length || res.phantoms.length ? 1 : 0)
   } catch (err: any) {
-    spinner.fail(chalk.red(`Error: ${err.message ?? err}`))
+    // ensure spinner is cleaned up
+    try { spinner.fail(chalk.red(`Error: ${err.message ?? err}`)) } catch (_) { /* ignore */ }
     process.exit(2)
+  } finally {
+    // ensure spinner stopped in every case
+    try { spinner.stop() } catch (_) { /* ignore */ }
   }
 })
 
